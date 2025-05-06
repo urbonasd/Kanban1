@@ -12,21 +12,80 @@ jobs:
   mark_awaiting:
     runs-on: ubuntu-latest
     steps:
-      - name: Add awaiting-response label
+      - name: Add awaiting-response label and update project status
         uses: actions/github-script@v7
         with:
           script: |
             const issue_number = context.payload.issue.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
             await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner,
+              repo,
               issue_number,
               labels: ['awaiting-response']
             });
 
-      - name: Move issue to Awaiting response in project
-        uses: peter-evans/create-or-update-project-card@v3
-        with:
-          project-name: 'Kanban1' # Replace with your project name
-          column-name: 'Awaiting Response' # Replace if your column/status name differs
-          issue-number: ${{ github.event.issue.number }}
+            const issue = await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number
+            });
+            const issueNodeId = issue.data.node_id;
+
+            const projectName = 'Kanban1'; 
+            const statusFieldName = 'Status'; 
+            const awaitingResponseOptionName = 'Awaiting Response'; 
+
+            const query = `
+              query {
+                repository(owner: "${owner}", name: "${repo}") {
+                  projectsV2(first: 10) {
+                    nodes {
+                      id
+                      title
+                      fields(first: 20) {
+                        nodes {
+                          ... on ProjectV2SingleSelectField {
+                            id
+                            name
+                            options {
+                              id
+                              name
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+            const result = await github.graphql(query);
+
+            const project = result.repository.projectsV2.nodes.find(p => p.title === projectName);
+            if (!project) throw new Error(`Project ${projectName} not found`);
+
+            const statusField = project.fields.nodes.find(f => f.name === statusFieldName);
+            if (!statusField) throw new Error(`Status field ${statusFieldName} not found`);
+
+            const awaitingResponseOption = statusField.options.find(o => o.name === awaitingResponseOptionName);
+            if (!awaitingResponseOption) throw new Error(`Option ${awaitingResponseOptionName} not found`);
+
+            await github.graphql(`
+              mutation {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: "${project.id}"
+                  itemId: "${issueNodeId}"
+                  fieldId: "${statusField.id}"
+                  value: {
+                    singleSelectOptionId: "${awaitingResponseOption.id}"
+                  }
+                }) {
+                  projectV2Item {
+                    id
+                  }
+                }
+              }
+            `);
