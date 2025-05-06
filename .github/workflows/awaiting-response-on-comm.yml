@@ -12,56 +12,21 @@ jobs:
   mark_awaiting:
     runs-on: ubuntu-latest
     steps:
-      - name: Add awaiting-response label and move project card
+      - name: Add awaiting-response label
         uses: actions/github-script@v7
         with:
           script: |
             const issue_number = context.payload.issue.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
             await github.rest.issues.addLabels({
-              owner,
-              repo,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
               issue_number,
               labels: ['awaiting-response']
             });
 
-            const projectName = 'Kanban1';
-            const columnName = 'Awaiting response';
-
-            const projects = await github.rest.projects.listForRepo({
-              owner,
-              repo
-            });
-            
-            const project = projects.data.find(p => p.name === projectName);
-            if (!project) throw new Error(`Project ${projectName} not found`);
-
-            const columns = await github.rest.projects.listColumns({
-              project_id: project.id
-            });
-
-            const column = columns.data.find(c => c.name === columnName);
-            if (!column) throw new Error(`Column ${columnName} not found`);
-
-            const cards = await github.rest.projects.listCards({
-              column_id: column.id
-            });
-            const card = cards.data.find(c => c.content_url && c.content_url.includes(`issues/${issue_number}`));
-
-            if (card) {
-
-              await github.rest.projects.moveCard({
-                card_id: card.id,
-                position: 'top',
-                column_id: column.id
-              });
-            } else {
-
-              await github.rest.projects.createCard({
-                column_id: column.id,
-                content_id: issue_number,
-                content_type: 'Issue'
-              });
-            }
+      - name: Move issue to Awaiting response in project
+        uses: peter-evans/create-or-update-project-card@v3
+        with:
+          project-name: 'Kanban1' # Replace with your project name
+          column-name: 'Awaiting Response' # Replace if your column/status name differs
+          issue-number: ${{ github.event.issue.number }}
